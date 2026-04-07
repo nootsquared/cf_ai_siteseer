@@ -1,121 +1,92 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { ExternalLink, FileText, Globe, Code } from "lucide-react";
+import { DotGridBackground } from "./components/ui/dot-grid-background";
+import { EncryptedText } from "./components/ui/encrypted-text";
+import { Tooltip } from "./components/ui/tooltip-card";
+import { GooeyInput } from "./components/ui/gooey-input";
+import "./App.css";
 
-function App() {
-  const [count, setCount] = useState(0)
+const developerLinks = (
+  <div className="flex flex-col gap-3">
+    <a
+      href="https://github.com/pranavmaringanti"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2.5 text-neutral-500 hover:text-neutral-900 transition-colors"
+    >
+      <Code size={13} className="shrink-0" />
+      <span className="text-xs dev-link-text">github.com/pranavmaringanti</span>
+    </a>
+    <a
+      href="https://linkedin.com/in/pranavmaringanti"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2.5 text-neutral-500 hover:text-neutral-900 transition-colors"
+    >
+      <ExternalLink size={13} className="shrink-0" />
+      <span className="text-xs dev-link-text">linkedin.com/in/pranavmaringanti</span>
+    </a>
+    <a
+      href="/resume.pdf"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2.5 text-neutral-500 hover:text-neutral-900 transition-colors"
+    >
+      <FileText size={13} className="shrink-0" />
+      <span className="text-xs dev-link-text">Resume</span>
+    </a>
+    <a
+      href="https://pranavmaringanti.com"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2.5 text-neutral-500 hover:text-neutral-900 transition-colors"
+    >
+      <Globe size={13} className="shrink-0" />
+      <span className="text-xs dev-link-text">pranavmaringanti.com</span>
+    </a>
+  </div>
+);
 
+export default function App() {
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+    <div className="app-root">
+      <DotGridBackground />
+
+      <div className="content-center">
+        {/* Title */}
+        <h1 className="siteseer-title">
+          <EncryptedText
+            text="SITE-SEER"
+            revealDelayMs={65}
+            flipDelayMs={40}
+            encryptedClassName="char-encrypted"
+            revealedClassName="char-revealed"
+          />
+        </h1>
+
+        {/* Subtitle */}
+        <p className="subtitle-text">
+          Developed by{" "}
+          <Tooltip content={developerLinks} containerClassName="inline">
+            <span className="developer-name">Pranav Maringanti</span>
+          </Tooltip>
+        </p>
+
+        {/* Input section */}
+        <div className="input-section">
+          <span className="input-pretext">Enter website URL</span>
+
+          <GooeyInput
+            placeholder="Enter website URL"
+            expandedWidth={420}
+            collapsedWidth={280}
+            expandedOffset={44}
+          />
+
+          <p className="input-subtext">
+            Add a URL to parse through and scan for false information
           </p>
         </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      </div>
+    </div>
+  );
 }
-
-export default App
