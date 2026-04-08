@@ -25,7 +25,12 @@ async function generateSearchQueries(
 
     console.log(`[generateSearchQueries] raw response for "${claim.slice(0, 60)}...":`, result.response);
 
-    const jsonMatch = result.response.trim().match(/\[[\s\S]*\]/);
+    // Workers AI sometimes returns a pre-parsed object instead of a string
+    const responseText = typeof result.response === 'string'
+      ? result.response
+      : JSON.stringify(result.response);
+
+    const jsonMatch = responseText.trim().match(/\[[\s\S]*\]/);
     if (!jsonMatch) throw new Error('No JSON array in response');
 
     const queries = JSON.parse(jsonMatch[0]) as unknown[];
@@ -80,8 +85,13 @@ async function evaluateClaim(
 
     console.log(`[evaluateClaim] raw response for "${claim.slice(0, 60)}...":`, result.response);
 
+    // Workers AI sometimes returns a pre-parsed object instead of a string
+    const responseText = typeof result.response === 'string'
+      ? result.response
+      : JSON.stringify(result.response);
+
     // Extract JSON — handle markdown code fences and extra surrounding text
-    const jsonMatch = result.response.trim().match(/\{[\s\S]*?\}/);
+    const jsonMatch = responseText.trim().match(/\{[\s\S]*?\}/);
     if (!jsonMatch) throw new Error('No JSON object in response');
 
     const parsed = JSON.parse(jsonMatch[0]) as { verdict: string; explanation: string };
