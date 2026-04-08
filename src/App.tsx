@@ -112,9 +112,9 @@ export default function App() {
           </motion.div>
         ) : (
           /* ── Dashboard ── */
-          <Dashboard key="dashboard" url={submittedUrl} onReset={handleReset} />
+          <Dashboard key="dashboard" result={{ url: submittedUrl }} onReset={handleReset} />
         )}
       </AnimatePresence>
     </div>
-  );
+  );  
 }
