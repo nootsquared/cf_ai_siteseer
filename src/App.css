@@ -114,6 +114,14 @@
   margin: 4px 0 0;
 }
 
+/* Gooey search bubble font — match landing theme */
+.gooey-search-field,
+.gooey-search-field::placeholder {
+  font-family: 'Share Tech Mono', monospace;
+  letter-spacing: 0.06em;
+  font-size: 0.78rem;
+}
+
 /* ═══════════════════════════════════════════════
    DASHBOARD
 ═══════════════════════════════════════════════ */

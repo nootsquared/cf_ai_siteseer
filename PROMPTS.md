@@ -4,6 +4,24 @@ A record of prompts used while building this project.
 
 ---
 
+## 9 — Pipeline Agents UI & Source Trust Filtering
+
+> For the pipeline agents, I want you to change it so instead of a bar you have a pie chart icon to the left of the agent that is running, and for each pipeline agent I want you to list out all the tasks. If there are 42 tasks then add something where it shows a bunch of tasks and rotates, so if the first task is done then you move onto the next task like a vertical carousel, but it should show everything the backend is doing, even the small bits. Then what I want you to do is add something that checks the results from the API, to check that the sources are sites that can be trusted. For example, the majority of the sources right now are youtube, facebook, bbc (itself), instagram, and other news outlets which are very bad sources. Add a check that will ensure that one, no matter what the page can't be verified by a site from itself, and two the source is not a major social media platform or a platform with general bias to their statements. Look for official transcripts, articles that are stated to be true, etc. Ensure that the sources are accurate and trustworthy sources so our outputs can be too.
+
+---
+
+## 8 — Frontend: Backend Integration & Live Dashboard
+
+> Now that you have fixed the backend wrangler portion of the application, I want you to link the backend to the frontend. Currently when you type a link into the search bar there is no verification that the link is a link or can be accessed, so once I type in the link ensure to check that the link can be accessed then if it can't give an error but if it can then move into the dashboard and begin visualizing the process. Ensure no fake statistics are displayed and all the statistics that were templated in the UI are pulled and received directly from the backend workflow. What you need to do is display all the information in a statistically accurate manner while not calling extra api calls to the api linked or using inefficient methods to pull the data from the processes. If there is a better way to visualize the dashboard with more metrics add in the metrics so the user can see what is going on in the backend. Ensure the dashboard always shows what is going on and what WILL go on, so if there are processes that are GOING to happen ensure to add them as well but with a different UI marker. Animate anything you can to make everything feel smooth and buttery, so things feel flowing and polished in terms of UI. Maintain aesthetics and efficiency.
+
+---
+
+## 7 — Pipeline: HTML Entities, Lenient JSON, LLM Search Queries
+
+> Fix two existing issues and add one new step to the pipeline. First, decode HTML entities in the text extraction step so encoded characters like &quot; and &#x27; are converted to actual characters before processing. Second, make the JSON parsing more lenient to handle cases where the model wraps its response in markdown or extra text, and add logging of the raw AI response so we can see what it returns. Third, add a new step to the pipeline before each Tavily search where the claim and the article title and context are sent to the LLM first, asking it to generate 2 to 3 short focused search queries for that claim. Use those generated queries for the Tavily search instead of the raw claim text.
+
+---
+
 ## 6 — Worker: Background URL Analysis (Tavily + Llama 3.3)
 
 > Now let's write in the actual analysis portion. When a POST jobs request comes in, after creating the job (when someone submits the URL) make the worker start a background task that fetches the submitted URL, so accesses the URL and its contents, extracts only the readable text from the page, take out all the HTML tags, scripts, navigation and any other elements like the footer or images. Then split the text into individual sentence level claims, take out anything that is too short. For each claim that was extracted, first search the Tavily API with the claim as the query to retrieve real web sources and evidence. Then put both the claim and the Tavily search results into Llama 3.3 on Workers AI, and ask it to evaluate whether the claim is true, false, or uncertain based on the evidence that was returned by Tavily. Store the Tavily API key as an environment secret var. Put the Tavily search logic in a separate file and call the file search.ts.
