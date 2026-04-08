@@ -513,6 +513,56 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
           )}
         </AnimatePresence>
 
+        {/* ── Disclaimer ── */}
+        <motion.div
+          className="relative rounded-lg border border-dashed border-zinc-300 bg-zinc-50/60 px-5 py-4 overflow-hidden"
+          {...fadeUp(0.04)}
+        >
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.035]"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(135deg, #000 0px, #000 1px, transparent 1px, transparent 6px)",
+            }}
+          />
+          <div className="relative flex gap-3.5 items-start">
+            <div
+              className="flex-shrink-0 mt-0.5 flex items-center justify-center rounded border border-zinc-300 bg-white text-zinc-500"
+              style={{ width: 22, height: 22, fontSize: 11, fontWeight: 700 }}
+            >
+              !
+            </div>
+            <div className="flex flex-col gap-2.5 min-w-0">
+              <p
+                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
+                style={{ letterSpacing: "0.01em" }}
+              >
+                <span className="font-semibold text-zinc-700">AI-generated analysis.</span>{" "}
+                Results are produced by language models and may contain inaccuracies,
+                hallucinations, or misinterpretations. Do not treat verdicts as definitive
+                fact.
+              </p>
+              <p
+                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
+                style={{ letterSpacing: "0.01em" }}
+              >
+                <span className="font-semibold text-zinc-700">Sources are not guaranteed.</span>{" "}
+                While sources are filtered by domain reputation, individual articles may
+                still contain errors, bias, or outdated information.
+              </p>
+              <p
+                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
+                style={{ letterSpacing: "0.01em" }}
+              >
+                <span className="font-semibold text-zinc-700">Access limitations.</span>{" "}
+                This tool cannot bypass paywalls, cookie consent walls, login gates, or
+                other access restrictions — content behind these barriers will not be
+                analyzed.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
         {/* ── 4 Stat Cards ── */}
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           {/* Score card */}
@@ -856,59 +906,6 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
                 );
               })}
             </AnimatePresence>
-          </div>
-        </motion.div>
-        {/* ── Disclaimer ── */}
-        <motion.div
-          className="relative mt-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-50/60 px-5 py-4 overflow-hidden"
-          {...fadeUp(0.36)}
-        >
-          {/* Faint diagonal hatch overlay */}
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.035]"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(135deg, #000 0px, #000 1px, transparent 1px, transparent 6px)",
-            }}
-          />
-
-          <div className="relative flex gap-3.5 items-start">
-            {/* Caution glyph */}
-            <div
-              className="flex-shrink-0 mt-0.5 flex items-center justify-center rounded border border-zinc-300 bg-white text-zinc-500"
-              style={{ width: 22, height: 22, fontSize: 11, fontWeight: 700 }}
-            >
-              !
-            </div>
-
-            <div className="flex flex-col gap-2.5 min-w-0">
-              <p
-                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
-                style={{ letterSpacing: "0.01em" }}
-              >
-                <span className="font-semibold text-zinc-700">AI-generated analysis.</span>{" "}
-                Results are produced by language models and may contain inaccuracies,
-                hallucinations, or misinterpretations. Do not treat verdicts as definitive
-                fact.
-              </p>
-              <p
-                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
-                style={{ letterSpacing: "0.01em" }}
-              >
-                <span className="font-semibold text-zinc-700">Sources are not guaranteed.</span>{" "}
-                While sources are filtered by domain reputation, individual articles may
-                still contain errors, bias, or outdated information.
-              </p>
-              <p
-                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
-                style={{ letterSpacing: "0.01em" }}
-              >
-                <span className="font-semibold text-zinc-700">Access limitations.</span>{" "}
-                This tool cannot bypass paywalls, cookie consent walls, login gates, or
-                other access restrictions — content behind these barriers will not be
-                analyzed.
-              </p>
-            </div>
           </div>
         </motion.div>
       </main>

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ExternalLink, Globe, Code } from "lucide-react";
+import { ExternalLink, Globe, Code, Cloud } from "lucide-react";
 import { DotGridBackground } from "./components/ui/dot-grid-background";
 import { EncryptedText } from "./components/ui/encrypted-text";
 import { Tooltip } from "./components/ui/tooltip-card";
@@ -155,7 +155,7 @@ export default function App() {
       )}
 
       {/* Main content area */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflowY: "auto" }}>
         <AnimatePresence mode="wait">
           {!active ? (
             /* ── Landing ── */
@@ -251,6 +251,11 @@ export default function App() {
                       </motion.p>
                     )}
                   </AnimatePresence>
+                </div>
+
+                <div className="cf-badge">
+                  <Cloud size={13} className="cf-badge-icon" />
+                  <span>Built for Cloudflare AI Challenge</span>
                 </div>
               </div>
             </motion.div>

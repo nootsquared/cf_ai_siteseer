@@ -78,7 +78,7 @@ Return a JSON array of the numbers to KEEP. Aim for the 10-15 strongest, most sp
         }
       }
     } catch {
-      // On failure, fall back to keeping the chunk as-is
+      // On failure (including timeout), fall back to keeping the chunk as-is
       kept.push(...chunk);
     }
   }

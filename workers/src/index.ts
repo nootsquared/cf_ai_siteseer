@@ -113,6 +113,14 @@ export class JobTracker extends DurableObject<Env> {
       return Response.json(state);
     }
 
+    // POST /start — kick off the analysis pipeline inside the DO
+    if (request.method === "POST" && reqUrl.pathname === "/start") {
+      const { url: targetUrl } = await request.json<{ url: string }>();
+      const selfStub = this.env.JOB_TRACKER.get(this.ctx.id);
+      this.ctx.waitUntil(runAnalysis(selfStub, targetUrl, this.env));
+      return Response.json({ ok: true });
+    }
+
     if (request.method === "POST") {
       const existing = await this.ctx.storage.get<JobState>("job");
       if (!existing) {
@@ -224,7 +232,14 @@ export default {
       initUrl.searchParams.set("url", body.url);
       await stub.fetch(initUrl.toString());
 
-      ctx.waitUntil(runAnalysis(stub, body.url, env));
+      // Start analysis inside the DO — its execution model supports long-running I/O
+      ctx.waitUntil(
+        stub.fetch('https://do.internal/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: body.url }),
+        }),
+      );
 
       return jsonCors({ jobId }, { status: 201 });
     }
