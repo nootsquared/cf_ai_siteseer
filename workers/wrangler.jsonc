@@ -13,13 +13,19 @@
 				"MyDurableObject"
 			],
 			"tag": "v1"
+		},
+		{
+			"new_sqlite_classes": [
+				"JobTracker"
+			],
+			"tag": "v2"
 		}
 	],
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "MyDurableObject",
-				"name": "MY_DURABLE_OBJECT"
+				"class_name": "JobTracker",
+				"name": "JOB_TRACKER"
 			}
 		]
 	},
@@ -29,7 +35,10 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
-	]
+	],
+	"ai": {
+		"binding": "AI"
+	},
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
