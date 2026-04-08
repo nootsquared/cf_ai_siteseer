@@ -1,5 +1,9 @@
 export async function extractClaims(url: string): Promise<string[]> {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; SiteSeer/1.0; +https://siteseer.dev)',
+    },
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
   }
