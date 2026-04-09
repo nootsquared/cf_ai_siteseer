@@ -17,6 +17,17 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
+// Heuristics to reject blocks that are clearly not natural-language prose
+function isGarbageBlock(raw: string): boolean {
+  // CSS / inline styles: contain CSS curly braces
+  if (/[{}]/.test(raw)) return true;
+
+  // Wikipedia TOC entries: start with a digit and contain "Toggle" or "subsection"
+  if (/^\d+[\s\u00a0]/.test(raw.trim()) && /Toggle|subsection/i.test(raw)) return true;
+
+  return false;
+}
+
 export async function extractClaims(url: string): Promise<ExtractionResult> {
   const response = await fetch(url, {
     headers: {
@@ -34,6 +45,8 @@ export async function extractClaims(url: string): Promise<ExtractionResult> {
   const blocks: string[] = [];
   let current = '';
   let title = '';
+  // Track nesting depth of style/script elements so their text is suppressed
+  let suppressDepth = 0;
 
   const rewriter = new HTMLRewriter()
     .on('title', {
@@ -41,13 +54,28 @@ export async function extractClaims(url: string): Promise<ExtractionResult> {
         title += chunk.text;
       },
     })
-    .on('p, h1, h2, h3, h4, h5, h6, li, blockquote, td', {
+    // Suppress text inside <style> and <script> regardless of nesting
+    .on('style, script, noscript', {
       element(el) {
+        suppressDepth++;
+        el.onEndTag(() => {
+          suppressDepth--;
+        });
+      },
+    })
+    // Prose elements only — no <td> (infobox), no <li> (TOC on wikis)
+    .on('p, blockquote, li', {
+      element(el) {
+        if (suppressDepth > 0) return;
         if (current.trim()) {
           blocks.push(current.trim());
         }
         current = '';
         el.onEndTag(() => {
+          if (suppressDepth > 0) {
+            current = '';
+            return;
+          }
           if (current.trim()) {
             blocks.push(current.trim());
           }
@@ -55,19 +83,30 @@ export async function extractClaims(url: string): Promise<ExtractionResult> {
         });
       },
       text(chunk) {
+        if (suppressDepth > 0) return;
         current += chunk.text;
       },
     });
 
   await rewriter.transform(response).arrayBuffer();
 
-  // Decode entities, split into sentences, filter short ones
-  const sentences = blocks.flatMap((block) =>
-    decodeHtmlEntities(block)
-      .split(/(?<=[.!?])\s+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length >= 40 && s.split(/\s+/).length >= 6)
-  );
+  // Decode entities, reject garbage blocks, split into sentences
+  const sentences = blocks
+    .map((block) => decodeHtmlEntities(block))
+    .filter((block) => !isGarbageBlock(block))
+    .flatMap((block) =>
+      block
+        .split(/(?<=[.!?])\s+/)
+        .map((s) => s.trim())
+        // Must be long enough and end with terminal punctuation (complete sentences)
+        .filter(
+          (s) =>
+            s.length >= 40 &&
+            s.split(/\s+/).length >= 6 &&
+            /[.!?]$/.test(s) &&
+            !isGarbageBlock(s),
+        ),
+    );
 
   return {
     title: decodeHtmlEntities(title.trim()),

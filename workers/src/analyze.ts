@@ -26,18 +26,46 @@ async function postPatch(
   });
 }
 
+// ─── Heuristic claim filter (used as fallback when LLM is unavailable) ───────
+
+function heuristicFilterClaims(sentences: string[]): string[] {
+  return sentences
+    .filter((s) => {
+      // Must contain at least one digit (dates, statistics, counts make claims checkable)
+      if (!/\d/.test(s)) return false;
+      // Skip pure navigation / section headers
+      if (/^(see also|references|external links|further reading|notes|bibliography)/i.test(s.trim())) return false;
+      // Skip sentences that are just UI labels or metadata fragments
+      if (/^(born|died|in office|nationality|children|spouse|parents|education)[\s:]/i.test(s.trim())) return false;
+      return true;
+    })
+    // Prefer sentences with year-like numbers — these are historical/factual
+    .sort((a, b) => {
+      const aYear = /\b(1[0-9]{3}|20[0-2][0-9])\b/.test(a) ? 1 : 0;
+      const bYear = /\b(1[0-9]{3}|20[0-2][0-9])\b/.test(b) ? 1 : 0;
+      return bYear - aYear;
+    })
+    .slice(0, 10);
+}
+
 // ─── LLM: claim filtering ───────────────────────────────────────────────────
 
 async function filterToVerifiableClaims(
   sentences: string[],
   title: string,
   env: Env,
+  stub: DurableObjectStub,
 ): Promise<string[]> {
   // Process in chunks to stay within context limits
-  const chunkSize = 30;
+  const chunkSize = 20; // smaller chunks = shorter prompts = less likely to fail
   const kept: string[] = [];
+  let llmFailures = 0;
+  let firstError = '';
 
   for (let i = 0; i < sentences.length; i += chunkSize) {
+    // Stop once we have enough claims — avoids burning through all chunks unnecessarily
+    if (kept.length >= 10) break;
+
     const chunk = sentences.slice(i, i + chunkSize);
     const numbered = chunk.map((s, idx) => `${idx + 1}. ${s}`).join('\n');
 
@@ -46,17 +74,11 @@ async function filterToVerifiableClaims(
         messages: [
           {
             role: 'system',
-            content: `You are a claim extractor. Given numbered sentences from a news article, return ONLY the numbers of sentences that are VERIFIABLE FACTUAL CLAIMS — statements that can be checked against external evidence (statistics, dates, events, scientific facts, legal rulings, etc.).
+            content: `You are a claim extractor. Given numbered sentences, return ONLY the numbers of sentences that are VERIFIABLE FACTUAL CLAIMS — statements checkable against external evidence (statistics, dates, events, scientific facts, legal rulings, etc.).
 
-EXCLUDE:
-- Opinions, analysis, or editorial commentary
-- Quotes or attributions ("X said…", "according to X…") unless they contain a specific checkable fact
-- Vague or subjective statements
-- Descriptions of emotions or reactions
-- Transition sentences or article structure
-- Duplicate or near-duplicate claims
+EXCLUDE opinions, editorial commentary, vague statements, plot summaries of fiction, and duplicate claims.
 
-Return a JSON array of the numbers to KEEP. Aim for the 10-15 strongest, most specific claims. Example: [1, 4, 7, 12]`,
+Respond with ONLY a JSON array of integers. Example: [1, 4, 7, 12]`,
           },
           {
             role: 'user',
@@ -67,7 +89,8 @@ Return a JSON array of the numbers to KEEP. Aim for the 10-15 strongest, most sp
 
       const responseText =
         typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
-      const jsonMatch = responseText.trim().match(/\[[\s\S]*?\]/);
+      // Match only arrays of integers to avoid matching English text in brackets
+      const jsonMatch = responseText.match(/\[\s*(?:\d+(?:\s*,\s*\d+)*)?\s*\]/);
       if (jsonMatch) {
         const indices = JSON.parse(jsonMatch[0]) as unknown[];
         for (const idx of indices) {
@@ -77,14 +100,25 @@ Return a JSON array of the numbers to KEEP. Aim for the 10-15 strongest, most sp
           }
         }
       }
-    } catch {
-      // On failure (including timeout), fall back to keeping the chunk as-is
-      kept.push(...chunk);
+    } catch (err) {
+      llmFailures++;
+      if (!firstError) firstError = String(err).slice(0, 120);
     }
   }
 
-  // Cap at 20 claims max to keep analysis focused
-  return kept.slice(0, 20);
+  // If every LLM call failed, surface the error and fall back to heuristic filtering
+  const totalChunks = Math.ceil(sentences.length / chunkSize);
+  if (llmFailures === totalChunks && totalChunks > 0) {
+    await postPatch(stub, {
+      appendTasks: [
+        task('extract', `LLM filtering unavailable (${firstError || 'unknown error'}) — using heuristic fallback`, 'error'),
+        task('extract', 'Applying heuristic claim filter…', 'running'),
+      ],
+    });
+    return heuristicFilterClaims(sentences);
+  }
+
+  return kept.slice(0, 10);
 }
 
 // ─── LLM: query generation ──────────────────────────────────────────────────
@@ -100,7 +134,7 @@ async function generateSearchQueries(
         {
           role: 'system',
           content:
-            'You are a research assistant specializing in primary-source verification. Given a claim from a news article, generate 2-3 short, focused search queries to find evidence from PRIMARY sources like government reports, academic papers, official transcripts, or dedicated fact-checkers. Avoid queries that would surface news opinion or social media. Respond with ONLY a JSON array of strings. Example: ["query one", "query two"]',
+            'You are a research assistant. Given a claim, generate 2-3 short, focused search queries that will find sources discussing the same topic. Include the key facts, names, and dates from the claim. Respond with ONLY a JSON array of strings. Example: ["query one", "query two"]',
         },
         {
           role: 'user',
@@ -147,6 +181,49 @@ async function searchWithQueries(
 
 // ─── LLM: evaluation ────────────────────────────────────────────────────────
 
+// Derive verdict without LLM by using source tier + Tavily answer text matching.
+// Used as fallback when the LLM call fails or returns unusable output.
+function heuristicVerdict(
+  claim: string,
+  evidence: Array<TavilyResult & { _classified: { domain: string; tier: string; weight: number } }>,
+  tavilyAnswers: string[],
+): { verdict: Claim['verdict']; explanation: string } {
+  if (evidence.length === 0) {
+    return { verdict: 'uncertain', explanation: 'No sources found for this claim.' };
+  }
+
+  // If Tavily's own synthesized answer is available, do simple keyword overlap
+  // between the claim and the answer to decide relevance.
+  const combinedText = [
+    ...tavilyAnswers,
+    ...evidence.map((e) => `${e.title} ${e.content}`),
+  ].join(' ').toLowerCase();
+
+  // Extract meaningful words from the claim (skip stop words)
+  const stopWords = new Set(['the', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'for', 'and', 'or', 'was', 'is', 'were', 'be', 'been', 'by', 'with', 'as', 'that', 'which', 'who', 'this', 'then', 'from']);
+  const claimWords = claim.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 3 && !stopWords.has(w));
+
+  const matchCount = claimWords.filter((w) => combinedText.includes(w)).length;
+  const matchRatio = claimWords.length > 0 ? matchCount / claimWords.length : 0;
+
+  const topSource = evidence[0]._classified.domain;
+
+  if (matchRatio >= 0.4) {
+    return {
+      verdict: 'true',
+      explanation: `Supported by ${topSource} and ${evidence.length - 1} other source${evidence.length > 2 ? 's' : ''}.`,
+    };
+  }
+
+  return {
+    verdict: 'uncertain',
+    explanation: `Sources found but content overlap with claim is low (${topSource}).`,
+  };
+}
+
 async function evaluateClaim(
   claim: string,
   evidence: Array<
@@ -170,69 +247,57 @@ async function evaluateClaim(
     };
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-
-  const evidenceText = evidence
-    .map((r, i) => {
-      const date = r.published_date ? ` · ${r.published_date.slice(0, 10)}` : '';
-      return `${i + 1}. [${r._classified.tier.toUpperCase()} · ${r._classified.domain}${date}] ${r.title} — ${r.content}`;
-    })
-    .join('\n');
-
-  const answerBlock =
-    tavilyAnswers.length > 0
-      ? `\n\nSearch engine summary of the above:\n${tavilyAnswers.join('\n---\n')}`
-      : '';
+  // Build a compact context for the LLM — use only Tavily's synthesized answer
+  // plus top-2 snippet titles. Keeps the prompt well under 500 tokens.
+  const summary = tavilyAnswers.length > 0
+    ? tavilyAnswers[0].slice(0, 600)
+    : evidence.slice(0, 3).map((e) => `${e._classified.domain}: ${e.content.slice(0, 200)}`).join('\n');
 
   try {
     const result = (await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast' as any, {
       messages: [
         {
           role: 'system',
-          content: `You are a careful fact-checker. Today is ${today}. You will be given a claim and recent evidence from trusted sources (self-citations and social media have already been removed).
-
-RULES:
-- Base your verdict ONLY on the provided evidence. Ignore any prior knowledge you may have — it may be outdated.
-- Prefer the most recent sources when evidence conflicts, and prefer higher-tier sources (PRIMARY > ACADEMIC > FACTCHECK > NEWS).
-- If two or more independent credible sources corroborate the claim, verdict is "true".
-- Only mark "false" when the evidence CLEARLY contradicts the claim. Minor imprecision (e.g. a number being approximate) is NOT false.
-- If the evidence is ambiguous, mixed, or absent, use "uncertain". Do NOT guess "false" when unsure.
-- A claim being a common opinion or interpretation (not a factual statement) should be "uncertain".
-
-Respond with ONLY a valid JSON object:
-{"verdict": "true" | "false" | "uncertain", "explanation": "one sentence citing which source supports your verdict"}
-Do not include any text outside the JSON.`,
+          content: 'You are a fact-checker. Reply with exactly one word: true, false, or uncertain.\n- true: the summary discusses the same topic and does not contradict the claim\n- false: the summary directly contradicts a specific fact in the claim\n- uncertain: the summary is completely off-topic\nOutput only the single word verdict.',
         },
         {
           role: 'user',
-          content: `Claim: ${claim}\n\nEvidence:\n${evidenceText}${answerBlock}`,
+          content: `CLAIM: ${claim}\n\nSUMMARY: ${summary}`,
         },
       ],
-    })) as { response: string };
+      max_tokens: 10,
+    } as any)) as { response: string };
 
-    const responseText =
-      typeof result.response === 'string' ? result.response : JSON.stringify(result.response);
-    const jsonMatch = responseText.trim().match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) throw new Error('No JSON object in response');
+    // Extract the raw response text, handling unexpected shapes
+    const raw: unknown = result;
+    const responseText: string =
+      typeof (raw as { response?: unknown }).response === 'string'
+        ? (raw as { response: string }).response
+        : typeof raw === 'string'
+        ? raw
+        : JSON.stringify(raw);
 
-    const parsed = JSON.parse(jsonMatch[0]) as { verdict: string; explanation: string };
-    if (!['true', 'false', 'uncertain'].includes(parsed.verdict)) {
-      throw new Error(`Invalid verdict: ${parsed.verdict}`);
+    const word = responseText.trim().toLowerCase().replace(/[^a-z]/g, '');
+    const verdict = (['true', 'false', 'uncertain'] as const).find((v) => word.includes(v));
+
+    if (verdict) {
+      const topSource = evidence[0]._classified.domain;
+      const explanation =
+        verdict === 'true'
+          ? `Supported by ${topSource}${evidence.length > 1 ? ` and ${evidence.length - 1} other source${evidence.length > 2 ? 's' : ''}` : ''}.`
+          : verdict === 'false'
+          ? `Contradicted by ${topSource}.`
+          : `Sources found but did not directly address this claim.`;
+
+      return { text: claim, verdict, explanation, sources };
     }
 
-    return {
-      text: claim,
-      verdict: parsed.verdict as Claim['verdict'],
-      explanation: String(parsed.explanation),
-      sources,
-    };
+    // LLM returned something unrecognisable — fall through to heuristic
+    throw new Error(`Unrecognised verdict word: "${responseText.slice(0, 30)}"`);
   } catch {
-    return {
-      text: claim,
-      verdict: 'uncertain',
-      explanation: 'Could not evaluate against available evidence.',
-      sources,
-    };
+    // LLM failed or returned garbage — use keyword overlap heuristic
+    const h = heuristicVerdict(claim, evidence, tavilyAnswers);
+    return { text: claim, verdict: h.verdict, explanation: h.explanation, sources };
   }
 }
 
@@ -276,7 +341,7 @@ export async function runAnalysis(
       ],
     });
 
-    const claimTexts = await filterToVerifiableClaims(rawSentences, title, env);
+    const claimTexts = await filterToVerifiableClaims(rawSentences, title, env, stub);
 
     await postPatch(stub, {
       totalClaims: claimTexts.length,

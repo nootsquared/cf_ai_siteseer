@@ -21,10 +21,9 @@ export async function searchClaim(
       body: JSON.stringify({
         api_key: apiKey,
         query: claim,
-        search_depth: 'advanced',
-        topic: 'news',
-        days: 1825, // ~5 years
-        max_results: 8,
+        search_depth: 'basic',
+        topic: 'general',
+        max_results: 5,
         include_answer: true,
       }),
     });
@@ -37,9 +36,9 @@ export async function searchClaim(
         body: JSON.stringify({
           api_key: apiKey,
           query: claim,
-          search_depth: 'advanced',
+          search_depth: 'basic',
           topic: 'general',
-          max_results: 8,
+          max_results: 5,
           include_answer: true,
         }),
       });
