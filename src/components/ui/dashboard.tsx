@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   AnimatePresence,
   motion,
@@ -8,7 +8,7 @@ import {
   useTransform,
 } from "motion/react";
 import { useJob } from "../../lib/useJob";
-import { RotateCw } from "lucide-react";
+import { RotateCw, AlertTriangle, Clock, ChevronRight } from "lucide-react";
 import type {
   AgentKey,
   Claim,
@@ -244,17 +244,53 @@ const PHASE_LABEL: Record<JobPhase, string> = {
 interface DashboardProps {
   jobId: string;
   url: string;
+  initialState?: JobState;
+  isHistoricalView?: boolean;
+  queryPosition?: { index: number; total: number };
   onReset?: () => void;
   onRetry?: () => void;
+  onSelectLatest?: () => void;
   onStateUpdate?: (updates: Partial<QueryHistoryEntry>) => void;
 }
 
-export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: DashboardProps) {
-  const { state, pollError } = useJob(jobId);
+// ── Error Boundary ──────────────────────────────────────────────────────────
+
+class DashboardErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error?: string }
+> {
+  state = { hasError: false, error: undefined as string | undefined };
+  static getDerivedStateFromError(err: unknown) {
+    return { hasError: true, error: String(err) };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-3 bg-white p-8">
+          <AlertTriangle size={24} className="text-zinc-400" />
+          <p className="text-sm font-medium text-zinc-700">Something went wrong rendering the dashboard.</p>
+          <p className="text-xs text-zinc-400 max-w-sm text-center">{this.state.error}</p>
+          <button
+            onClick={() => this.setState({ hasError: false })}
+            className="text-xs border border-zinc-200 rounded px-3 py-1.5 hover:bg-zinc-50 text-zinc-600 mt-2"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export function Dashboard({ jobId, url, initialState, isHistoricalView, queryPosition, onReset, onRetry, onSelectLatest, onStateUpdate }: DashboardProps) {
+  // Don't poll if we already have a terminal initialState — show it immediately
+  const isTerminalInitial = initialState?.status === "complete" || initialState?.status === "error";
+  const { state, pollError } = useJob(isTerminalInitial ? null : jobId);
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
 
-  // Default placeholder state until first poll arrives
-  const live: JobState = state ?? {
+  // Use polled state, then cached initial state (for historical navigation), then empty placeholder
+  const live: JobState = state ?? initialState ?? {
     id: jobId,
     url,
     status: "pending",
@@ -289,21 +325,6 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
   const agents = deriveAgents(live);
   const runningCount = agents.filter((a) => a.status === "running").length;
 
-  // Mirror the Pipeline Agents card height onto the Sources card so the
-  // sources list becomes internally scrollable instead of stretching the row.
-  const agentsCardRef = useRef<HTMLDivElement>(null);
-  const [agentsCardHeight, setAgentsCardHeight] = useState<number | null>(null);
-  useEffect(() => {
-    const el = agentsCardRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setAgentsCardHeight(entry.contentRect.height);
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // Source aggregation from real claims — preserves tier so each chip can
   // show where its trust weight comes from.
@@ -384,6 +405,8 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
       uncertainClaims: uncertainClaims.length,
       totalClaims,
       processedClaims: live.processedClaims,
+      // Always cache state so sidebar navigation shows last known data immediately
+      ...(live.phase !== "queued" ? { cachedState: live } : {}),
     });
   }, [
     live.title,
@@ -424,6 +447,7 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
   }, [activeFilter, trueClaims, falseClaims, uncertainClaims, pendingCount]);
 
   return (
+    <DashboardErrorBoundary>
     <motion.div
       className="flex flex-col bg-white"
       style={{
@@ -449,15 +473,40 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
           </span>
           <span
             className="text-xs text-zinc-400 bg-zinc-50 border border-zinc-200 px-2 py-0.5 rounded truncate"
-            style={{ maxWidth: 360 }}
+            style={{ maxWidth: 300 }}
             title={url}
           >
             {url}
           </span>
           <PhasePill phase={live.phase} />
+          {isHistoricalView && (
+            <span
+              className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded border flex-shrink-0 uppercase tracking-wider"
+              style={{
+                background: "#fefce8",
+                border: "1px solid #fbbf24",
+                color: "#92400e",
+                fontFamily: "'Share Tech Mono', monospace",
+              }}
+            >
+              <Clock size={9} />
+              {queryPosition ? `Query ${queryPosition.index} of ${queryPosition.total}` : "Historical"}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {onRetry && (
+          {isHistoricalView && onSelectLatest && (
+            <button
+              onClick={onSelectLatest}
+              type="button"
+              className="flex items-center gap-1 text-xs text-amber-700 border border-amber-300 rounded-md px-3 py-1.5 hover:bg-amber-50 transition-colors bg-amber-50/50 font-medium"
+              style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: 11 }}
+            >
+              Latest
+              <ChevronRight size={11} />
+            </button>
+          )}
+          {onRetry && !isHistoricalView && (
             <button
               onClick={onRetry}
               type="button"
@@ -516,54 +565,19 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
         </AnimatePresence>
 
         {/* ── Disclaimer ── */}
-        <motion.div
-          className="relative rounded-lg border border-dashed border-zinc-300 bg-zinc-50/60 px-5 py-4 overflow-hidden"
-          {...fadeUp(0.04)}
+        <div
+          className="flex items-start gap-2.5 rounded-lg px-4 py-3"
+          style={{ border: "1px dashed #d4d4d8", background: "#fafafa" }}
         >
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.035]"
-            style={{
-              backgroundImage:
-                "repeating-linear-gradient(135deg, #000 0px, #000 1px, transparent 1px, transparent 6px)",
-            }}
-          />
-          <div className="relative flex gap-3.5 items-start">
-            <div
-              className="flex-shrink-0 mt-0.5 flex items-center justify-center rounded border border-zinc-300 bg-white text-zinc-500"
-              style={{ width: 22, height: 22, fontSize: 11, fontWeight: 700 }}
-            >
-              !
-            </div>
-            <div className="flex flex-col gap-2.5 min-w-0">
-              <p
-                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
-                style={{ letterSpacing: "0.01em" }}
-              >
-                <span className="font-semibold text-zinc-700">AI-generated analysis.</span>{" "}
-                Results are produced by language models and may contain inaccuracies,
-                hallucinations, or misinterpretations. Do not treat verdicts as definitive
-                fact.
-              </p>
-              <p
-                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
-                style={{ letterSpacing: "0.01em" }}
-              >
-                <span className="font-semibold text-zinc-700">Sources are not guaranteed.</span>{" "}
-                While sources are filtered by domain reputation, individual articles may
-                still contain errors, bias, or outdated information.
-              </p>
-              <p
-                className="text-[11px] leading-relaxed text-zinc-500 font-mono"
-                style={{ letterSpacing: "0.01em" }}
-              >
-                <span className="font-semibold text-zinc-700">Access limitations.</span>{" "}
-                This tool cannot bypass paywalls, cookie consent walls, login gates, or
-                other access restrictions — content behind these barriers will not be
-                analyzed.
-              </p>
-            </div>
-          </div>
-        </motion.div>
+          <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" style={{ color: "#a1a1aa" }} />
+          <p className="text-[11.5px] leading-relaxed" style={{ color: "#71717a" }}>
+            <span className="font-medium" style={{ color: "#52525b" }}>AI-generated analysis.</span>{" "}
+            Verdicts are produced by language models and may contain inaccuracies or hallucinations.
+            Sources are filtered by domain reputation but may still be biased or outdated.
+            Content behind paywalls or login gates cannot be analyzed.{" "}
+            <span className="font-medium" style={{ color: "#52525b" }}>Do not use as a definitive source.</span>
+          </p>
+        </div>
 
         {/* ── 4 Stat Cards ── */}
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
@@ -621,74 +635,24 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
           />
         </div>
 
-        {/* ── Middle Row: Agents + Sources ── */}
-        <div
-          className="grid gap-3 items-start"
-          style={{ gridTemplateColumns: "1fr 1fr" }}
-        >
-          {/* Agents Card */}
-          <motion.div
-            layout
-            ref={agentsCardRef}
-            className="bg-white border border-zinc-200 rounded-lg p-4 relative"
-            {...fadeUp(0.22)}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-zinc-900">Pipeline Agents</span>
-              <div className="flex items-center gap-1.5">
-                <span className="relative flex" style={{ width: 7, height: 7 }}>
-                  {runningCount > 0 && (
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-zinc-400 opacity-60" />
-                  )}
-                  <span
-                    className={`relative inline-flex rounded-full ${
-                      runningCount > 0 ? "bg-zinc-800" : "bg-zinc-300"
-                    }`}
-                    style={{ width: 7, height: 7 }}
-                  />
-                </span>
-                <span className="text-xs text-zinc-400">
-                  <AnimatedNumber value={runningCount} /> running
-                </span>
-              </div>
-            </div>
+        {/* ── Middle Row: Agent Terminal + Sources ── */}
+        <div className="grid gap-3 items-start" style={{ gridTemplateColumns: "3fr 2fr" }}>
 
-            <div className="flex flex-col divide-y divide-zinc-100">
-              {agents.map((agent) => {
-                const agentKey = AGENT_KEY_BY_NAME[agent.name];
-                const agentTasks = live.tasks?.filter((t) => t.agent === agentKey) ?? [];
-                return (
-                  <div
-                    key={agent.name}
-                    className="py-3 first:pt-0 last:pb-0 flex items-start gap-3"
-                  >
-                    <PieIcon progress={agent.progress} status={agent.status} />
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <div className="text-xs font-semibold text-zinc-800 truncate tracking-tight">
-                          {agent.name}
-                        </div>
-                        <AgentStatusPill status={agent.status} />
-                      </div>
-
-                      <TaskCarousel
-                        tasks={agentTasks}
-                        fallback={agent.statusMessage}
-                        running={agent.status === "running"}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </motion.div>
+          {/* Agent Orchestration Panel */}
+          <AgentOrchestrator
+            tasks={live.tasks ?? []}
+            phase={live.phase}
+            processedClaims={live.processedClaims}
+            totalClaims={totalClaims}
+            runningCount={runningCount}
+            delay={0.22}
+          />
 
           {/* Sources Card */}
           <motion.div
             layout
             className="bg-white border border-zinc-200 rounded-lg p-4 flex flex-col overflow-hidden"
-            style={agentsCardHeight ? { height: agentsCardHeight } : undefined}
+            style={{ height: 280 }}
             {...fadeUp(0.26)}
           >
             <div className="flex items-center justify-between mb-3 flex-shrink-0">
@@ -701,11 +665,11 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
             {sources.length === 0 ? (
               <div className="text-xs text-zinc-400 py-8 text-center">
                 {live.phase === "analyzing"
-                  ? "Gathering evidence from the web…"
-                  : "Sources will appear as claims are verified."}
+                  ? "Gathering evidence…"
+                  : "Sources appear as claims are verified."}
               </div>
             ) : (
-              <div className="flex flex-col divide-y divide-zinc-100 flex-1 min-h-0 overflow-y-auto pr-3 -mr-3">
+              <div className="flex flex-col divide-y divide-zinc-100 flex-1 min-h-0 overflow-y-auto pr-1">
                 <AnimatePresence initial={false}>
                   {sources.map((source, i) => (
                     <motion.div
@@ -715,38 +679,29 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.25, delay: i * 0.03 }}
-                      className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0"
+                      className="flex items-center gap-2 py-2 first:pt-0 last:pb-0"
                     >
                       <span
                         className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded font-semibold border flex-shrink-0 ${TIER_CFG[source.tier].chipClass}`}
-                        style={{ width: 66, textAlign: "center" }}
+                        style={{ width: 60, textAlign: "center" }}
                       >
                         {TIER_CFG[source.tier].short}
                       </span>
                       <div
-                        className="text-xs text-zinc-700 truncate font-mono"
-                        style={{ flex: "1 1 auto", minWidth: 0 }}
+                        className="text-xs text-zinc-700 truncate font-mono flex-1 min-w-0"
                         title={source.domain}
                       >
                         {source.domain}
                       </div>
-                      <div
-                        className="flex-shrink-0 bg-zinc-100 rounded-full overflow-hidden"
-                        style={{ height: 3, width: 80 }}
-                      >
+                      <div className="flex-shrink-0 bg-zinc-100 rounded-full overflow-hidden" style={{ height: 3, width: 60 }}>
                         <motion.div
                           className={`h-full rounded-full ${TIER_CFG[source.tier].barClass}`}
                           initial={{ width: 0 }}
-                          animate={{
-                            width: `${(source.citationCount / maxCitations) * 100}%`,
-                          }}
+                          animate={{ width: `${(source.citationCount / maxCitations) * 100}%` }}
                           transition={{ duration: 0.55, ease: "easeOut" }}
                         />
                       </div>
-                      <div
-                        className="text-xs text-zinc-500 tabular-nums flex-shrink-0 text-right"
-                        style={{ width: 22 }}
-                      >
+                      <div className="text-xs text-zinc-500 tabular-nums flex-shrink-0" style={{ width: 18 }}>
                         <AnimatedNumber value={source.citationCount} />
                       </div>
                     </motion.div>
@@ -912,6 +867,7 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
         </motion.div>
       </main>
     </motion.div>
+    </DashboardErrorBoundary>
   );
 }
 
@@ -952,26 +908,6 @@ function StatCard({
   );
 }
 
-function AgentStatusPill({ status }: { status: AgentStatus }) {
-  const map: Record<AgentStatus, { cls: string; label: string }> = {
-    done: { cls: "bg-zinc-100 text-zinc-500 border-zinc-200", label: "done" },
-    running: { cls: "bg-zinc-900 text-white border-zinc-900", label: "running" },
-    pending: { cls: "bg-zinc-50 text-zinc-400 border-zinc-200", label: "pending" },
-    error: { cls: "bg-zinc-100 text-zinc-700 border-zinc-300", label: "error" },
-  };
-  const { cls, label } = map[status];
-  return (
-    <motion.span
-      layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.2 }}
-      className={`flex-shrink-0 text-xs px-2 py-0.5 rounded border font-medium ${cls}`}
-    >
-      {label}
-    </motion.span>
-  );
-}
 
 function PhasePill({ phase }: { phase: JobPhase }) {
   const label = PHASE_LABEL[phase];
@@ -1046,187 +982,515 @@ const TIER_CFG: Record<
   },
 };
 
-const AGENT_KEY_BY_NAME: Record<string, AgentKey> = {
-  "Fetch Agent": "fetch",
-  "Extraction Agent": "extract",
-  "Evidence Retrieval": "evidence",
-  "Verdict Judge": "judge",
+// ── Agent Orchestrator ──────────────────────────────────────────────────────
+
+type AgentMetaEntry = {
+  label: string;
+  color: string;
+  bg: string;
+  border: string;
 };
 
-// ── Pie chart icon ──────────────────────────────────────────────────────────
+const AGENT_META: Record<AgentKey, AgentMetaEntry> = {
+  fetch:    { label: "Web Fetcher",      color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe" },
+  extract:  { label: "Claim Extractor",  color: "#b45309", bg: "#fffbeb", border: "#fde68a" },
+  evidence: { label: "Evidence Finder",  color: "#0d9488", bg: "#f0fdfa", border: "#99f6e4" },
+  judge:    { label: "Verdict Judge",    color: "#7c3aed", bg: "#faf5ff", border: "#ddd6fe" },
+};
 
-function PieIcon({
-  progress,
-  status,
-}: {
-  progress: number;
-  status: AgentStatus;
-}) {
-  const size = 34;
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = 13;
-  const circumference = 2 * Math.PI * r;
-
-  const mv = useMotionValue(0);
-  const spring = useSpring(mv, { stiffness: 90, damping: 22 });
-  const dashOffset = useTransform(
-    spring,
-    (v) => circumference - (Math.max(0, Math.min(100, v)) / 100) * circumference,
+// ── Monochrome task status icon (circle / checkmark / pie) ──────────────────
+function TaskStatusIcon({ status, size = 13 }: { status: string; size?: number }) {
+  const half = size / 2;
+  const r = half - 1.5;
+  if (status === "running") {
+    // Spinning dashed arc — rendered as a CSS-animated SVG
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        className="animate-spin"
+        style={{ animationDuration: "1s" }}
+      >
+        <circle
+          cx={half} cy={half} r={r}
+          fill="none"
+          stroke="#18181b"
+          strokeWidth="1.5"
+          strokeDasharray={`${r * 1.8} ${r * 4.5}`}
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+  if (status === "done") {
+    // Filled circle with white checkmark
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={half} cy={half} r={r + 0.5} fill="#18181b" />
+        <path
+          d={`M${half - 2.5} ${half} L${half - 0.5} ${half + 2} L${half + 3} ${half - 2.5}`}
+          fill="none"
+          stroke="white"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (status === "error") {
+    // Hollow circle with X
+    return (
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={half} cy={half} r={r} fill="none" stroke="#d1d5db" strokeWidth="1.5" />
+        <path
+          d={`M${half - 2.2} ${half - 2.2} L${half + 2.2} ${half + 2.2} M${half + 2.2} ${half - 2.2} L${half - 2.2} ${half + 2.2}`}
+          stroke="#9ca3af"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+  // pending — hollow circle
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={half} cy={half} r={r} fill="none" stroke="#d4d4d8" strokeWidth="1.5" />
+    </svg>
   );
+}
+
+// Parse a task label into displayable parts
+function parseTaskLabel(label: string): {
+  isSubtask: boolean;
+  claimBadge: string | null;
+  text: string;
+} {
+  const isSubtask = label.startsWith("  \u21b3") || label.startsWith("  ↳");
+  if (isSubtask) {
+    const clean = label.replace(/^\s*↳\s*"?/, "").replace(/"?\s*$/, "");
+    return { isSubtask: true, claimBadge: null, text: clean };
+  }
+  const claimMatch = label.match(/^\[(\d+)\/(\d+)\]\s*(.*)/);
+  if (claimMatch) {
+    return { isSubtask: false, claimBadge: `${claimMatch[1]}/${claimMatch[2]}`, text: claimMatch[3] };
+  }
+  return { isSubtask: false, claimBadge: null, text: label };
+}
+
+function AgentRing({
+  done,
+  total,
+  running,
+}: {
+  done: number;
+  total: number;
+  running: boolean;
+}) {
+  const size = 36;
+  const r = 14;
+  const circ = 2 * Math.PI * r;
+  const mv = useMotionValue(0);
+  const spring = useSpring(mv, { stiffness: 100, damping: 22 });
+  const dashOffset = useTransform(spring, (v) => circ - v * circ);
 
   useEffect(() => {
-    mv.set(progress);
-  }, [progress, mv]);
-
-  const ringColor =
-    status === "error"
-      ? "#991b1b"
-      : status === "done"
-        ? "#16a34a"
-        : status === "running"
-          ? "#18181b"
-          : "#a1a1aa";
-
-  const bgColor = status === "pending" ? "#f4f4f5" : "#e4e4e7";
+    mv.set(total > 0 ? done / total : 0);
+  }, [done, total, mv]);
 
   return (
-    <motion.div
-      className="relative flex-shrink-0"
-      style={{ width: size, height: size }}
-      animate={status === "running" ? { scale: [1, 1.04, 1] } : { scale: 1 }}
-      transition={
-        status === "running"
-          ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" }
-          : { duration: 0.3 }
-      }
-    >
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg
         width={size}
         height={size}
         viewBox={`0 0 ${size} ${size}`}
         style={{ transform: "rotate(-90deg)" }}
       >
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={bgColor} strokeWidth="5" />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f4f4f5" strokeWidth="4" />
         <motion.circle
-          cx={cx}
-          cy={cy}
+          cx={size / 2}
+          cy={size / 2}
           r={r}
           fill="none"
-          stroke={ringColor}
-          strokeWidth="5"
+          stroke="#18181b"
+          strokeWidth="4"
           strokeLinecap="round"
-          strokeDasharray={circumference}
+          strokeDasharray={circ}
           style={{ strokeDashoffset: dashOffset }}
         />
-        {status === "done" && (
-          <motion.path
-            d={`M ${cx - 4} ${cy + 0.5} L ${cx - 1} ${cy + 3.5} L ${cx + 4.5} ${cy - 2.5}`}
-            fill="none"
-            stroke={ringColor}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={{ pathLength: 0, opacity: 0 }}
-            animate={{ pathLength: 1, opacity: 1 }}
-            transition={{ duration: 0.3, delay: 0.1 }}
-            style={{ transform: "rotate(90deg)", transformOrigin: `${cx}px ${cy}px` }}
-          />
-        )}
-        {status === "running" && (
-          <motion.circle
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke={ringColor}
-            strokeWidth="1"
-            strokeOpacity={0.25}
-            animate={{ scale: [1, 1.25, 1], opacity: [0.4, 0, 0.4] }}
-            transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
-            style={{ transformOrigin: `${cx}px ${cy}px` }}
-          />
-        )}
       </svg>
-    </motion.div>
-  );
-}
-
-// ── Task carousel (vertical rolling log) ────────────────────────────────────
-
-function TaskCarousel({
-  tasks,
-  fallback,
-  running,
-}: {
-  tasks: TaskLogEntry[];
-  fallback: string;
-  running: boolean;
-}) {
-  // Show the last 3 tasks in reverse chronological order.
-  const visible = tasks.slice(-3).reverse();
-
-  return (
-    <div className="relative" style={{ height: 42 }}>
-      <AnimatePresence initial={false} mode="sync">
-        {visible.length === 0 ? (
-          <motion.div
-            key="fallback"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="absolute inset-x-0 text-[11px] text-zinc-400 leading-tight mt-0.5 truncate font-mono"
-          >
-            {fallback}
-          </motion.div>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {running ? (
+          <svg width="10" height="10" viewBox="0 0 10 10" className="animate-spin" style={{ animationDuration: "1s" }}>
+            <circle cx="5" cy="5" r="3.5" fill="none" stroke="#18181b" strokeWidth="1.5" strokeDasharray="12 8" strokeLinecap="round" />
+          </svg>
+        ) : total > 0 && done === total ? (
+          <svg width="12" height="12" viewBox="0 0 12 12">
+            <path
+              d="M2.5 6.5 L5 9 L9.5 3.5"
+              fill="none"
+              stroke="#18181b"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         ) : (
-          visible.map((t, i) => {
-            const opacity = i === 0 ? 1 : i === 1 ? 0.55 : 0.25;
-            const y = i * 14;
-            const isHead = i === 0;
-            return (
-              <motion.div
-                key={t.id}
-                layout
-                initial={{ opacity: 0, y: y - 12, filter: "blur(2px)" }}
-                animate={{
-                  opacity,
-                  y,
-                  filter: "blur(0px)",
-                }}
-                exit={{ opacity: 0, y: y + 14, filter: "blur(2px)" }}
-                transition={{
-                  duration: 0.32,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
-                className="absolute inset-x-0 flex items-center gap-1.5 font-mono truncate"
-                style={{
-                  fontSize: isHead ? 11 : 10,
-                  color: isHead ? "#27272a" : "#a1a1aa",
-                  fontWeight: isHead ? 500 : 400,
-                  letterSpacing: "0.01em",
-                }}
-              >
-                {isHead && running && (
-                  <motion.span
-                    className="inline-block w-1 h-1 rounded-full bg-zinc-900 flex-shrink-0"
-                    animate={{ opacity: [1, 0.3, 1] }}
-                    transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
-                  />
-                )}
-                {isHead && !running && (
-                  <span className="inline-block w-1 h-1 rounded-full bg-zinc-300 flex-shrink-0" />
-                )}
-                <span className="truncate">{t.label}</span>
-              </motion.div>
-            );
-          })
+          <span style={{ fontSize: 9, color: "#a1a1aa", fontVariantNumeric: "tabular-nums" }}>
+            {total > 0 ? `${Math.round((done / total) * 100)}%` : "—"}
+          </span>
         )}
-      </AnimatePresence>
+      </div>
     </div>
   );
 }
 
+const AgentSection = React.memo(function AgentSection({
+  agentKey,
+  tasks,
+}: {
+  agentKey: AgentKey;
+  tasks: TaskLogEntry[];
+}) {
+  const cfg = AGENT_META[agentKey];
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const hasTasks = tasks.length > 0;
+  const doneTasks = tasks.filter((t) => t.status === "done" || t.status === "error").length;
+  const hasRunning = tasks.some((t) => t.status === "running");
+  const agentStatus: "pending" | "running" | "complete" = !hasTasks
+    ? "pending"
+    : hasRunning
+      ? "running"
+      : "complete";
+
+  // Only show latest 30 tasks to prevent performance degradation
+  const visibleTasks = tasks.slice(-30);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [tasks.length]);
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${hasTasks ? cfg.border : "#e4e4e7"}`,
+        borderRadius: 8,
+        background: hasTasks ? cfg.bg : "#fafafa",
+        overflow: "hidden",
+        transition: "border-color 0.3s, background 0.3s",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          padding: "10px 12px 10px 10px",
+          borderBottom: hasTasks ? `1px solid ${cfg.border}` : "none",
+        }}
+      >
+        <AgentRing done={doneTasks} total={tasks.length} running={hasRunning} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontFamily: "'Rajdhani', sans-serif",
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: hasTasks ? cfg.color : "#a1a1aa",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              lineHeight: 1.2,
+            }}
+          >
+            {cfg.label}
+          </div>
+          <div style={{ fontSize: 10, color: hasTasks ? "#71717a" : "#a1a1aa", marginTop: 2, lineHeight: 1.2 }}>
+            {hasTasks ? `${doneTasks} of ${tasks.length} steps done` : "Waiting to start"}
+          </div>
+        </div>
+        <span
+          style={{
+            fontSize: 9.5,
+            fontWeight: 600,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            padding: "2px 8px",
+            borderRadius: 4,
+            border: `1px solid ${agentStatus === "pending" ? "#e4e4e7" : cfg.border}`,
+            color: agentStatus === "pending" ? "#a1a1aa" : cfg.color,
+            background: agentStatus === "pending" ? "transparent" : `${cfg.color}10`,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            flexShrink: 0,
+          }}
+        >
+          {agentStatus === "running" && (
+            <svg width="6" height="6" viewBox="0 0 6 6" className="animate-spin" style={{ animationDuration: "1s", flexShrink: 0 }}>
+              <circle cx="3" cy="3" r="2" fill="none" stroke="#71717a" strokeWidth="1.5" strokeDasharray="5 8" strokeLinecap="round" />
+            </svg>
+          )}
+          {agentStatus === "complete" ? "Done" : agentStatus === "running" ? "Active" : "Waiting"}
+        </span>
+      </div>
+
+      {/* Task list */}
+      {hasTasks && (
+        <div
+          ref={scrollRef}
+          style={{
+            padding: "8px 10px 8px 12px",
+            maxHeight: 160,
+            overflowY: "auto",
+            scrollbarWidth: "thin",
+            scrollbarColor: `${cfg.border} transparent`,
+          }}
+        >
+          <AnimatePresence initial={false}>
+            {visibleTasks.map((task) => {
+              const { isSubtask, claimBadge, text } = parseTaskLabel(task.label);
+              const isRunning = task.status === "running";
+              const isError = task.status === "error";
+
+              return (
+                <motion.div
+                  key={task.id}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 7,
+                    paddingLeft: isSubtask ? 18 : 0,
+                    paddingTop: 3,
+                    paddingBottom: 3,
+                    position: "relative",
+                  }}
+                >
+                  {/* Subtask connector */}
+                  {isSubtask && (
+                    <div style={{ position: "absolute", left: 7, top: 0, bottom: 0, width: 1, background: cfg.border }} />
+                  )}
+
+                  {/* Status icon */}
+                  <div style={{ flexShrink: 0, width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}>
+                    <TaskStatusIcon status={task.status} size={13} />
+                  </div>
+
+                  {/* Label */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {isSubtask ? (
+                      <span style={{ fontSize: 11, color: "#71717a", display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                        {/* subtask small dot */}
+                        <svg width="5" height="5" viewBox="0 0 5 5" style={{ flexShrink: 0 }}>
+                          <circle cx="2.5" cy="2.5" r="2" fill="#d4d4d8" />
+                        </svg>
+                        <span style={{ wordBreak: "break-word" }}>{text}</span>
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 11.5, color: isRunning ? "#18181b" : isError ? "#ef4444" : "#52525b", fontWeight: isRunning ? 500 : 400, lineHeight: "1.4" }}>
+                        {claimBadge && (
+                          <span style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            marginRight: 5,
+                            padding: "0 5px",
+                            borderRadius: 3,
+                            background: `${cfg.color}15`,
+                            border: `1px solid ${cfg.color}28`,
+                            fontSize: 9.5,
+                            fontWeight: 700,
+                            color: cfg.color,
+                            letterSpacing: "0.03em",
+                            verticalAlign: "middle",
+                          }}>
+                            {claimBadge}
+                          </span>
+                        )}
+                        {text}
+                      </span>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      )}
+    </div>
+  );
+});
+
+function AgentOrchestrator({
+  tasks,
+  phase,
+  processedClaims,
+  totalClaims,
+  runningCount,
+  delay,
+}: {
+  tasks: TaskLogEntry[];
+  phase: JobPhase;
+  processedClaims: number;
+  totalClaims: number;
+  runningCount: number;
+  delay: number;
+}) {
+  const tasksByAgent = useMemo(() => {
+    const groups: Record<AgentKey, TaskLogEntry[]> = {
+      fetch: [],
+      extract: [],
+      evidence: [],
+      judge: [],
+    };
+    for (const task of tasks) {
+      if (task.agent in groups) groups[task.agent].push(task);
+    }
+    return groups;
+  }, [tasks]);
+
+  const doneTaskCount = tasks.filter(
+    (t) => t.status === "done" || t.status === "error",
+  ).length;
+
+  return (
+    <motion.div
+      className="bg-white border border-zinc-200 rounded-lg p-4 flex flex-col gap-3"
+      {...fadeUp(delay)}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <span
+            style={{
+              fontFamily: "'Rajdhani', sans-serif",
+              fontWeight: 600,
+              fontSize: 14,
+              color: "#18181b",
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+            }}
+          >
+            Agent Orchestration
+          </span>
+          {runningCount > 0 && (
+            <motion.span
+              style={{
+                fontFamily: "'Share Tech Mono', monospace",
+                fontSize: 10,
+                padding: "2px 9px",
+                borderRadius: 999,
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                color: "#15803d",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+              animate={{ opacity: [0.8, 1, 0.8] }}
+              transition={{ duration: 1.4, repeat: Infinity }}
+            >
+              <motion.span
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: "50%",
+                  background: "#22c55e",
+                  display: "inline-block",
+                }}
+                animate={{ scale: [1, 1.5, 1] }}
+                transition={{ duration: 0.9, repeat: Infinity }}
+              />
+              {runningCount} running
+            </motion.span>
+          )}
+          {phase === "complete" && runningCount === 0 && (
+            <span
+              style={{
+                fontFamily: "'Share Tech Mono', monospace",
+                fontSize: 10,
+                padding: "2px 9px",
+                borderRadius: 999,
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                color: "#15803d",
+              }}
+            >
+              all done
+            </span>
+          )}
+        </div>
+        {tasks.length > 0 && (
+          <span
+            style={{
+              fontFamily: "'Share Tech Mono', monospace",
+              fontSize: 10,
+              color: "#71717a",
+            }}
+          >
+            {doneTaskCount}/{tasks.length}
+          </span>
+        )}
+      </div>
+
+      {/* 2×2 agent grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {(["fetch", "extract", "evidence", "judge"] as AgentKey[]).map((key) => (
+          <AgentSection key={key} agentKey={key} tasks={tasksByAgent[key]} />
+        ))}
+      </div>
+
+      {/* Claim progress bar */}
+      {phase === "analyzing" && totalClaims > 0 && (
+        <div
+          className="flex items-center gap-2 pt-1"
+          style={{ borderTop: "1px solid #f4f4f5" }}
+        >
+          <span
+            style={{
+              fontFamily: "'Share Tech Mono', monospace",
+              fontSize: 9.5,
+              color: "#71717a",
+            }}
+          >
+            claims verified
+          </span>
+          <div
+            className="flex-1 rounded-full overflow-hidden"
+            style={{ height: 3, background: "#f4f4f5" }}
+          >
+            <motion.div
+              style={{ height: "100%", background: "#18181b", borderRadius: 999 }}
+              initial={{ width: 0 }}
+              animate={{ width: `${(processedClaims / totalClaims) * 100}%` }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+            />
+          </div>
+          <span
+            style={{
+              fontFamily: "'Share Tech Mono', monospace",
+              fontSize: 9.5,
+              color: "#71717a",
+            }}
+          >
+            {processedClaims}/{totalClaims}
+          </span>
+        </div>
+      )}
+    </motion.div>
+  );
+}
 // Backward-compatible export
 export type { JobState as FactCheckResult };

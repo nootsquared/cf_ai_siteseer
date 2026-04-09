@@ -4,6 +4,18 @@ A record of prompts used while building this project.
 
 ---
 
+## Prompt #13: Frontend Agentic Task Hierarchy and Progress Visualization
+
+> The backend is working as intended. Improve the frontend so it is easier to read and so it clearly communicates an agentic workflow rather than a single opaque generative pass. Render a nested structure of tasks and subtasks that updates as the system creates new units of work, with subtasks visually grouped under their parent tasks. Each task should show a small pie chart on the left to represent overall progress for that unit of work, and each subtask should show a checkmark or equivalent when it completes. Use spacing, hierarchy, and labels so users can scan what is running, what finished, and what was spawned later in the run. The UI should signal that multiple coordinated steps and implicit sub-agents are doing the work behind the scenes, including dynamic expansion of the task list when new subtasks appear, so the product feels like an explicit multi-agent pipeline instead of a static one-shot generation.
+
+---
+
+## Prompt #12: Cloudflare Agents SDK and Agentic Verification Pipeline
+
+> Integrate the Cloudflare Agents npm package documented at https://agents.cloudflare.com and refactor this project so the backend uses an agentic execution model instead of a fixed linear generative pipeline that repeats the same steps on every job. The agent should decompose work into the minimal sequence of tool calls and model turns needed to obtain the specific structured evidence and verdicts the product requires, with explicit planning or state so behavior stays targeted rather than ad hoc. When a source is unknown, low quality, or empty, the agent should iterate by issuing alternative search queries or follow-up retrieval rather than stopping after a single attempt. The agent should also re-evaluate whether a text span is a verifiable factual claim versus non-assertive page content such as boilerplate, navigation, or footer messaging before spending retrieval budget on it. Provide rich context including article metadata, surrounding text, and job state so decisions stay grounded, and use the Agents SDK patterns for dynamic state updates across turns to improve accuracy compared to one-shot generation.
+
+---
+
 ## Prompt #11: Minor UI/Logic Fixes: Query Log Tooltip & Scan Threshold
 
 > MINOR UI/LOGIC FIXES; Fix the tooltip issue when you hover over the Query log. The tooltip stays within the rendered sidebar component; the tooltip should have a higher z-index and appear on top of the sidebar and any other text in the way. Also, decrease the scan intensity threshold to avoid issues where thresholds aren't met, and all queries are labeled as uncertain.

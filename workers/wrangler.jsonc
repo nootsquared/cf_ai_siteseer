@@ -13,13 +13,22 @@
 				"JobTracker"
 			],
 			"tag": "v1"
+		},
+		{
+			"deleted_classes": [
+				"JobTracker"
+			],
+			"new_sqlite_classes": [
+				"FactCheckAgent"
+			],
+			"tag": "v2"
 		}
 	],
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "JobTracker",
-				"name": "JOB_TRACKER"
+				"class_name": "FactCheckAgent",
+				"name": "FACT_CHECK_AGENT"
 			}
 		]
 	},

@@ -4,11 +4,11 @@
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/index");
-		durableNamespaces: "MyDurableObject" | "JobTracker";
+		durableNamespaces: "MyDurableObject" | "FactCheckAgent";
 	}
 	interface Env {
 		AI: Ai;
-		JOB_TRACKER: DurableObjectNamespace /* JobTracker */;
+		FACT_CHECK_AGENT: DurableObjectNamespace /* FactCheckAgent */;
 	}
 }
 interface Env extends Cloudflare.Env {

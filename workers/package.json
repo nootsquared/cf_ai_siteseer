@@ -12,5 +12,8 @@
     "@types/node": "^25.5.2",
     "typescript": "^5.5.2",
     "wrangler": "^4.81.0"
+  },
+  "dependencies": {
+    "agents": "^0.10.0"
   }
 }

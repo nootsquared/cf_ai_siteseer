@@ -10,7 +10,7 @@ import {
   QueryHistorySidebar,
   type QueryHistoryEntry,
 } from "./components/ui/query-history-sidebar";
-import { createJob, isValidUrl, verifyUrl } from "./lib/api";
+import { createJob, isValidUrl, verifyUrl, type JobState } from "./lib/api";
 import "./App.css";
 
 const developerLinks = (
@@ -49,7 +49,7 @@ type SubmitState =
   | { kind: "idle" }
   | { kind: "verifying" }
   | { kind: "error"; message: string }
-  | { kind: "active"; jobId: string; url: string };
+  | { kind: "active"; jobId: string; url: string; initialState?: JobState };
 
 let entryCounter = 0;
 
@@ -135,12 +135,17 @@ export default function App() {
   };
 
   const handleSelectHistory = (entry: QueryHistoryEntry) => {
-    setSubmit({ kind: "active", jobId: entry.jobId, url: entry.url });
+    setSubmit({ kind: "active", jobId: entry.jobId, url: entry.url, initialState: entry.cachedState });
   };
 
   const isVerifying = submit.kind === "verifying";
   const errorMessage = submit.kind === "error" ? submit.message : null;
   const active = submit.kind === "active" ? submit : null;
+
+  // Historical view: active job is not the most recent one in history
+  const isHistoricalView = active !== null && queryHistory.length > 0 && queryHistory[0].jobId !== active.jobId;
+  const queryPositionIndex = active !== null ? queryHistory.findIndex((e) => e.jobId === active.jobId) : -1;
+  const latestEntry = queryHistory[0] ?? null;
 
   return (
     <div className="app-root" style={{ display: "flex", flexDirection: "row" }}>
@@ -265,9 +270,13 @@ export default function App() {
               key={active.jobId}
               jobId={active.jobId}
               url={active.url}
+              initialState={active.initialState}
+              isHistoricalView={isHistoricalView}
+              queryPosition={queryPositionIndex >= 0 ? { index: queryPositionIndex + 1, total: queryHistory.length } : undefined}
               onReset={handleReset}
               onRetry={() => handleRetry({ jobId: active.jobId, url: active.url } as QueryHistoryEntry)}
               onStateUpdate={(updates) => updateHistoryEntry(active.jobId, updates)}
+              onSelectLatest={isHistoricalView && latestEntry ? () => handleSelectHistory(latestEntry) : undefined}
             />
           )}
         </AnimatePresence>

@@ -1,7 +1,9 @@
-import { DurableObject } from "cloudflare:workers";
-import { runAnalysis } from './analyze';
+import { FactCheckAgent } from './agent';
 
-// ─── Shared Types ────────────────────────────────────────────────────────────
+// ─── Re-export FactCheckAgent so wrangler can find it ────────────────────────
+export { FactCheckAgent };
+
+// ─── Shared Types (consumed by agent.ts, extract.ts, trust.ts, etc.) ─────────
 
 export type JobStatus = "pending" | "processing" | "complete" | "error";
 
@@ -72,84 +74,14 @@ function jsonCors(data: unknown, init: ResponseInit = {}): Response {
   return withCors(Response.json(data, init));
 }
 
-// ─── Durable Object ──────────────────────────────────────────────────────────
-
-export class JobTracker extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    const reqUrl = new URL(request.url);
-
-    if (request.method === "GET") {
-      const state = await this.ctx.storage.get<JobState>("job");
-
-      if (!state) {
-        const id = reqUrl.searchParams.get("id");
-        const jobUrl = reqUrl.searchParams.get("url");
-
-        if (id && jobUrl) {
-          const now = Date.now();
-          const newState: JobState = {
-            id,
-            url: jobUrl,
-            status: "pending",
-            phase: "queued",
-            totalClaims: 0,
-            processedClaims: 0,
-            claims: [],
-            tasks: [],
-            createdAt: now,
-            updatedAt: now,
-          };
-          await this.ctx.storage.put("job", newState);
-          return Response.json(newState, { status: 201 });
-        }
-
-        return Response.json({ error: "Job not found" }, { status: 404 });
-      }
-
-      return Response.json(state);
-    }
-
-    if (request.method === "POST") {
-      const existing = await this.ctx.storage.get<JobState>("job");
-      if (!existing) {
-        return Response.json({ error: "Job not found" }, { status: 404 });
-      }
-
-      const patch = await request.json<
-        Partial<JobState> & { appendTasks?: TaskLogEntry[] }
-      >();
-      const { appendTasks, ...rest } = patch;
-
-      // Cap task log so the DO state doesn't grow unbounded.
-      const mergedTasks = appendTasks
-        ? [...(existing.tasks ?? []), ...appendTasks].slice(-250)
-        : (rest.tasks ?? existing.tasks ?? []);
-
-      const updated: JobState = {
-        ...existing,
-        ...rest,
-        tasks: mergedTasks,
-        id: existing.id,
-        url: existing.url,
-        createdAt: existing.createdAt,
-        updatedAt: Date.now(),
-      };
-      await this.ctx.storage.put("job", updated);
-      return Response.json(updated);
-    }
-
-    return new Response("Method Not Allowed", { status: 405 });
-  }
-}
-
-// ─── Worker Fetch Handler ────────────────────────────────────────────────────
+// ─── Worker Fetch Handler ─────────────────────────────────────────────────────
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -158,7 +90,7 @@ export default {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
 
-    // POST /verify — HEAD check a URL to confirm reachability
+    // ── POST /verify ──────────────────────────────────────────────────────────
     if (request.method === "POST" && parts[0] === "verify" && parts.length === 1) {
       let body: { url?: unknown };
       try {
@@ -167,7 +99,10 @@ export default {
         return jsonCors({ ok: false, error: "Invalid JSON body" }, { status: 400 });
       }
       if (!body.url || typeof body.url !== "string") {
-        return jsonCors({ ok: false, error: "Missing required field: url" }, { status: 400 });
+        return jsonCors(
+          { ok: false, error: "Missing required field: url" },
+          { status: 400 },
+        );
       }
 
       let parsed: URL;
@@ -177,33 +112,36 @@ export default {
         return jsonCors({ ok: false, error: "Invalid URL format" }, { status: 400 });
       }
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return jsonCors({ ok: false, error: "URL must use http or https" }, { status: 400 });
+        return jsonCors(
+          { ok: false, error: "URL must use http or https" },
+          { status: 400 },
+        );
       }
 
       try {
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), 8_000);
-        // Use HEAD to avoid downloading the full page body
         const probe = await fetch(parsed.toString(), {
           method: "HEAD",
           headers: {
-            "User-Agent": "Mozilla/5.0 (compatible; SiteSeer/1.0; +https://siteseer.dev)",
+            "User-Agent":
+              "Mozilla/5.0 (compatible; SiteSeer/1.0; +https://siteseer.dev)",
           },
           redirect: "follow",
           signal: ac.signal,
         });
         clearTimeout(timer);
-        // Any response (even 403/405) proves the site is reachable
         return jsonCors({ ok: true, status: probe.status });
       } catch (e) {
-        const msg = (e as Error).name === "AbortError"
-          ? "Request timed out — the site took too long to respond"
-          : `Unreachable: ${(e as Error).message}`;
+        const msg =
+          (e as Error).name === "AbortError"
+            ? "Request timed out — the site took too long to respond"
+            : `Unreachable: ${(e as Error).message}`;
         return jsonCors({ ok: false, error: msg }, { status: 200 });
       }
     }
 
-    // POST /jobs — submit a URL, get back a job ID
+    // ── POST /jobs — create a new fact-check job ──────────────────────────────
     if (request.method === "POST" && parts[0] === "jobs" && parts.length === 1) {
       let body: { url?: unknown };
       try {
@@ -213,32 +151,49 @@ export default {
       }
 
       if (!body.url || typeof body.url !== "string") {
-        return jsonCors({ error: "Missing required field: url" }, { status: 400 });
+        return jsonCors(
+          { error: "Missing required field: url" },
+          { status: 400 },
+        );
       }
 
       const jobId = crypto.randomUUID();
-      const stub = env.JOB_TRACKER.get(env.JOB_TRACKER.idFromName(jobId));
 
+      // Get the FactCheckAgent stub for this job
+      const stub = env.FACT_CHECK_AGENT.get(
+        env.FACT_CHECK_AGENT.idFromName(jobId),
+      );
+
+      // Initialise the agent state AND kick off the agentic analysis.
+      // x-partykit-room is required by partyserver (used by the agents package)
+      // to identify the DO instance; without it Server.fetch swallows the error.
       const initUrl = new URL("https://do.internal/");
       initUrl.searchParams.set("id", jobId);
       initUrl.searchParams.set("url", body.url);
-      await stub.fetch(initUrl.toString());
-
-      ctx.waitUntil(runAnalysis(stub, body.url, env));
+      await stub.fetch(initUrl.toString(), {
+        headers: { "x-partykit-room": jobId },
+      });
 
       return jsonCors({ jobId }, { status: 201 });
     }
 
-    // GET /jobs/:id — check status and results
-    if (request.method === "GET" && parts[0] === "jobs" && parts.length === 2) {
+    // ── GET /jobs/:id — poll job state ────────────────────────────────────────
+    if (
+      request.method === "GET" &&
+      parts[0] === "jobs" &&
+      parts.length === 2
+    ) {
       const jobId = parts[1];
-      const stub = env.JOB_TRACKER.get(env.JOB_TRACKER.idFromName(jobId));
-      const doRes = await stub.fetch("https://do.internal/");
-
+      const stub = env.FACT_CHECK_AGENT.get(
+        env.FACT_CHECK_AGENT.idFromName(jobId),
+      );
+      const doRes = await stub.fetch("https://do.internal/", {
+        headers: { "x-partykit-room": jobId },
+      });
       const body = await doRes.json();
       return jsonCors(body, { status: doRes.status });
     }
 
-    return withCors(new Response("Method Not Allowed", { status: 405 }));
+    return withCors(new Response("Not Found", { status: 404 }));
   },
 } satisfies ExportedHandler<Env>;

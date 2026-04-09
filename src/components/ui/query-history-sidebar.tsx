@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight, RotateCw, AlertTriangle } from "lucide-react";
 import { Tooltip } from "./tooltip-card";
+import type { JobState } from "../../lib/api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ export type QueryHistoryEntry = {
   totalClaims: number;
   processedClaims: number;
   timestamp: number;
+  cachedState?: JobState;
 };
 
 // ── Mini Pie Chart ───────────────────────────────────────────────────────────

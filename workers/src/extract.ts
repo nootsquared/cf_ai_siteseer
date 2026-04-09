@@ -63,8 +63,8 @@ export async function extractClaims(url: string): Promise<ExtractionResult> {
         });
       },
     })
-    // Prose elements only — no <td> (infobox), no <li> (TOC on wikis)
-    .on('p, blockquote, li', {
+    // Prose elements — include dd for FAQ/definition lists
+    .on('p, blockquote, li, dd', {
       element(el) {
         if (suppressDepth > 0) return;
         if (current.trim()) {
