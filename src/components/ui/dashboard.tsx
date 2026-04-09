@@ -426,8 +426,10 @@ export function Dashboard({ jobId, url, onReset, onRetry, onStateUpdate }: Dashb
   return (
     <motion.div
       className="flex flex-col bg-white"
-      style={{ minHeight: "100svh", height: "100svh", overflow: "hidden" }}
       style={{
+        minHeight: "100svh",
+        height: "100svh",
+        overflow: "hidden",
         backgroundImage: "radial-gradient(circle, #d4d4d8 1px, transparent 1px)",
         backgroundSize: "20px 20px",
       }}
