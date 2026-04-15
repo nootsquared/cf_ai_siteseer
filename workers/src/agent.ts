@@ -198,7 +198,15 @@ Fields: i=1-based index, t=type, v=should_verify(boolean), r=brief reason`,
           }
 
           const batchNum = Math.floor(i / chunkSize) + 1;
-          const skipNote = skipped.length > 0 ? ` (skipped: ${skipped.map(r => r.t).join(', ')})` : '';
+          let skipNote = '';
+          if (skipped.length > 0) {
+            const counts = skipped.reduce<Record<string, number>>((acc, r) => {
+              acc[r.t] = (acc[r.t] ?? 0) + 1;
+              return acc;
+            }, {});
+            const parts = Object.entries(counts).map(([t, n]) => n > 1 ? `${n} ${t}` : t);
+            skipNote = ` (skipped: ${parts.join(', ')})`;
+          }
           this.patch({
             appendTasks: [
               this.mkTask('extract', `Batch ${batchNum}: ${toVerify.length} verifiable claims found${skipNote}`),
