@@ -134,6 +134,14 @@ export class FactCheckAgent extends Agent<Env, JobState> {
     this.setState({ ...cur, ...rest, tasks: mergedTasks, updatedAt: Date.now() });
   }
 
+  /** Update the status of a single existing task by id. */
+  private patchTask(taskId: string, status: TaskStatus): void {
+    const cur = this.state;
+    if (!cur) return;
+    const tasks = (cur.tasks ?? []).map(t => t.id === taskId ? { ...t, status } : t);
+    this.setState({ ...cur, tasks, updatedAt: Date.now() });
+  }
+
   // ── Phase 1: Intelligent claim classification ─────────────────────────────
   //
   // LLM classifies each sentence into a typed category so we skip navigation
@@ -480,28 +488,35 @@ Fields: i=1-based index, t=type, v=should_verify(boolean), r=brief reason`,
 
   async startAnalysis(url: string): Promise<void> {
     try {
+      const resolvingTask = this.mkTask('fetch', `Resolving ${new URL(url).hostname}`, 'running');
+      const downloadingTask = this.mkTask('fetch', 'Downloading page HTML', 'running');
       this.patch({
         status: 'processing',
         phase: 'fetching',
-        appendTasks: [
-          this.mkTask('fetch', `Resolving ${new URL(url).hostname}`, 'running'),
-          this.mkTask('fetch', 'Downloading page HTML'),
-        ],
+        appendTasks: [resolvingTask, downloadingTask],
       });
 
       const { title, claims: rawSentences } = await extractClaims(url);
 
+      // Mark fetch tasks done as soon as the page arrives — don't wait for the whole job
+      this.patchTask(resolvingTask.id, 'done');
+      this.patchTask(downloadingTask.id, 'done');
+
+      const classifyingTask = this.mkTask('extract', 'Classifying sentences with LLM — identifying verifiable claims…', 'running');
       this.patch({
         phase: 'extracting',
         title,
         appendTasks: [
           this.mkTask('fetch', `Page received · "${this.trunc(title, 50)}"`),
           this.mkTask('extract', `${rawSentences.length} candidate sentences extracted`),
-          this.mkTask('extract', 'Classifying sentences with LLM — identifying verifiable claims…', 'running'),
+          classifyingTask,
         ],
       });
 
       const claimTexts = await this.classifyClaims(rawSentences, title);
+
+      // Mark classifying done as soon as LLM finishes — don't wait for the whole job
+      this.patchTask(classifyingTask.id, 'done');
 
       this.patch({
         totalClaims: claimTexts.length,
